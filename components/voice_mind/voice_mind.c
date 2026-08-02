@@ -25,6 +25,7 @@
 
 static voice_t g_voice_priv;
 extern bool DataInput_Init();
+extern void auto_volume_on_ambient_level(float level);
 #define DEBUG_DUMP_PCM_DATA 0
 #if DEBUG_DUMP_PCM_DATA
 volatile uint8_t g_asr_pcm_dump[200*1024];
@@ -55,6 +56,10 @@ static void _mic_input_event(void *priv, int evt, void *data, int size)
             g_asr_pcm_len += size;
         }
 #endif
+	} else if (evt == AMBIENT_LEVEL_EVENT) {
+		if (size == sizeof(float)) {
+			auto_volume_on_ambient_level(*(float *)data);
+		}
 	} else if (evt == SESSION_STOP_EVENT) {
 		g_voice_priv.state = VOICE_STATE_IDLE;
 		g_voice_priv.event_cb(g_voice_priv.mic, MIC_EVENT_SESSION_STOP, (void *)&result, sizeof(mic_kws_t));

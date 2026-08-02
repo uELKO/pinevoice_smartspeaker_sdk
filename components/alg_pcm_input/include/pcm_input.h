@@ -17,6 +17,7 @@ extern "C"
 #define PCM_DATA_EVENT               0x3
 #define SESSION_STOP_EVENT           0x4
 #define SESSION_START_EVENT          0x5
+#define AMBIENT_LEVEL_EVENT          0x6
 
 /**
  * @brief 节点测试命令注册

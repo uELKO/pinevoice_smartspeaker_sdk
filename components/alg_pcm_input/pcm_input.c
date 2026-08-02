@@ -70,6 +70,11 @@ static void _msg_process(ipc_t *ipc, message_t *msg, void *priv)
         		self->pfunc_event(self->priv, PCM_DATA_EVENT, (void *)msg->req_data, msg->req_len);
         	}
         } break;
+        case AMBIENT_LEVEL_EVENT: {
+        	if (self->pfunc_event) {
+        		self->pfunc_event(self->priv, AMBIENT_LEVEL_EVENT, (void *)msg->req_data, msg->req_len);
+        	}
+        } break;
         default:
             break;
     }
