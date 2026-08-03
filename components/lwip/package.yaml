@@ -64,6 +64,8 @@ source_file:
   - "core/altcp_alloc.c"
   - "core/altcp_tcp.c"
   - "core/altcp.c"
+  - "apps/altcp_tls/altcp_tls_mbedtls.c"
+  - "apps/altcp_tls/altcp_tls_mbedtls_mem.c"
   - "core/ipv4/autoip.c"
   - "core/ipv4/dhcp.c"
   - "core/ipv4/etharp.c"
@@ -137,6 +139,8 @@ source_file:
   - "apps/ping/ping.c"
   - "apps/ping/ping_v4.c"
   - "apps/ping/ping_v6.c"
+  - "apps/http/httpd.c"
+  - "apps/http/fs.c"
   - "port/sys_arch.c"
   - "cli/*.c  ? <AOS_COMP_CLI>"
 

@@ -309,4 +309,46 @@ a lot of data that needs to be copied, this should be set high. */
 
 #define LWIP_RAW                        1
 
+/*
+   -----------------------------------
+   ---------- httpd options ----------
+   -----------------------------------
+   Local-only web form for entering MQTT broker credentials, served at
+   http://pinevoice-XXXXXX.local/ (see mdns_advertiser.c for the hostname).
+*/
+#define LWIP_HTTPD_SUPPORT_POST          1
+#define LWIP_HTTPD_CUSTOM_FILES          1
+#define LWIP_HTTPD_DYNAMIC_HEADERS       1
+#define LWIP_HTTPD_SSI                   0
+#define LWIP_HTTPD_CGI                   0
+
+/*
+   -----------------------------------
+   ---------- MQTT options -----------
+   -----------------------------------
+   Defaults (256/128) are too small for Home Assistant MQTT Discovery
+   payloads (device block + entity config JSON).
+*/
+/* Sized to hold the whole connect-time burst (4 subscribes + "online" +
+ * 4 HA-discovery JSON configs + 3 state publishes, ~2.7KB) in one go --
+ * mqtt_publish()/mqtt_subscribe() silently drop the write if the ring
+ * buffer doesn't have room, and there's no round-trip to drain it
+ * between our own back-to-back calls in the connect callback. */
+#define MQTT_OUTPUT_RINGBUF_SIZE         4096
+#define MQTT_VAR_HEADER_BUFFER_LEN       512
+
+/* mqtt_create_request() allocates one request slot per subscribe/publish
+ * call and only frees it once "sent" fires (a genuine network round-trip
+ * later), not synchronously. Our connect callback fires 4 subscribes +
+ * 8 publishes back-to-back, so the default of 4 in-flight slots is
+ * exhausted after the first 4 calls and every call after that fails
+ * immediately with ERR_MEM, regardless of ring buffer space. */
+#define MQTT_REQ_MAX_IN_FLIGHT           16
+
+/* altcp_alloc.c references altcp_tls_wrap() unconditionally whenever
+ * LWIP_ALTCP_TLS is set (already the case above), so the mbedTLS backend
+ * must be selected too or the symbol is left undefined at link time --
+ * even though our MQTT connection itself is plain (non-TLS). */
+#define LWIP_ALTCP_TLS_MBEDTLS           1
+
 #endif /* __LWIPOPTS_H__ */

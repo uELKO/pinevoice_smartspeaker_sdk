@@ -6,7 +6,7 @@
 	url = ../pinevoice_fw_e907.git
 [submodule "components/wyoming_c_satellite/src"]
 	path = components/wyoming_c_satellite/src
-	url = https://github.com/gamelaster/wyoming_c_satellite
+	url = ../wyoming_c_satellite.git
 [submodule "components/microwakeword/src"]
 	path = components/microwakeword/src
 	url = https://github.com/gamelaster/microwakeword-c
