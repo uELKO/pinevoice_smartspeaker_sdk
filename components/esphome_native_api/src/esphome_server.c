@@ -245,9 +245,17 @@ bool esphome_api_send_voice_assistant_audio(const uint8_t *data, size_t len, boo
     return send_message(&io, ESPB_MSG_VOICE_ASSISTANT_AUDIO, buf, n);
 }
 
-// Diagnostic only for now (see TODO.md) -- just logs event_type and any
-// name/value data pairs so we can see *why* a pipeline run ends, instead of
-// guessing from silence. Not yet wired into any LED/state behavior.
+static esphome_api_va_event_cb_t s_va_event_cb = NULL;
+
+void esphome_api_set_voice_assistant_event_callback(esphome_api_va_event_cb_t cb)
+{
+    s_va_event_cb = cb;
+}
+
+// Logs event_type and any name/value data pairs (so pipeline failures are
+// visible instead of silent), and forwards each one to the registered app
+// callback so the app can react (stop audio streaming, play back a TTS URL,
+// eventually drive the LED show). See TODO.md.
 static void handle_voice_assistant_event(const uint8_t *payload, size_t len)
 {
     pb_reader_t r;
@@ -258,6 +266,7 @@ static void handle_voice_assistant_event(const uint8_t *payload, size_t len)
     uint32_t event_type = ESPB_VA_EVENT_ERROR;
     char data_buf[192] = {0};
     size_t data_used = 0;
+    bool had_data = false;
 
     while (pb_reader_next_field(&r, &f)) {
         if (f.field_number == ESPB_VA_EVT_F_EVENT_TYPE && f.wire_type == PB_WIRE_TYPE_VARINT) {
@@ -267,7 +276,7 @@ static void handle_voice_assistant_event(const uint8_t *payload, size_t len)
             pb_reader_init(&sub, f.bytes_value, f.bytes_len);
             pb_field_t sf;
             char name[32] = {0};
-            char value[96] = {0};
+            char value[256] = {0};
             while (pb_reader_next_field(&sub, &sf)) {
                 if (sf.field_number == ESPB_VA_EVT_DATA_F_NAME && sf.wire_type == PB_WIRE_TYPE_LEN) {
                     pb_field_to_cstr(&sf, name, sizeof(name));
@@ -275,6 +284,7 @@ static void handle_voice_assistant_event(const uint8_t *payload, size_t len)
                     pb_field_to_cstr(&sf, value, sizeof(value));
                 }
             }
+            had_data = true;
             if (data_used < sizeof(data_buf)) {
                 int written = snprintf(data_buf + data_used, sizeof(data_buf) - data_used,
                                         "%s%s=%s", data_used ? "," : "", name, value);
@@ -282,7 +292,13 @@ static void handle_voice_assistant_event(const uint8_t *payload, size_t len)
                     data_used += (size_t)written;
                 }
             }
+            if (s_va_event_cb) {
+                s_va_event_cb(event_type, name, value);
+            }
         }
+    }
+    if (!had_data && s_va_event_cb) {
+        s_va_event_cb(event_type, "", "");
     }
     LOGI(TAG, "VoiceAssistantEventResponse: event_type=%u data={%s}", (unsigned)event_type, data_buf);
 }

@@ -267,20 +267,46 @@ Neu zu bauen:
    unabhängig vom echten Wake-Word-Pfad — Risiko für die Alltagsnutzung war
    die ganze Zeit praktisch null.
 
-   Noch zu tun, in dieser Reihenfolge:
+   **Update (2026-09-26, 3. Fortsetzung): TTS wird tatsächlich hörbar
+   abgespielt, Audio-Stream stoppt jetzt event-gesteuert statt per Timer.**
+   `esphome_api_set_voice_assistant_event_callback()` (neue generische
+   Callback-API in `components/esphome_native_api`) liefert jedes
+   `VoiceAssistantEventResponse` als `(event_type, name, value)` an die App.
+   `wyoming.c`s `va_test_event_cb()` nutzt das für zwei Dinge: (1) stoppt das
+   Audio-Streaming bei `STT_END`/`ERROR`/`RUN_END` (mit 15s-Timeout als reines
+   Sicherheitsnetz, falls keins davon je kommt) statt nach einer festen
+   Dauer; (2) spielt bei `TTS_END` die mitgelieferte URL über einen
+   eigenständigen `player_t` direkt ab (`player_play(player, "http://...",
+   0)` — funktioniert mit beliebigen HTTP-URLs, wie schon vom
+   `smta play <url>`-CLI-Befehl bekannt). **Live gegen echtes HA getestet
+   und akustisch bestätigt**: STT transkribierte echte Sprache, HA antwortete
+   konversationell, die Antwort kam hörbar aus dem Lautsprecher — bei
+   unverändert normalem LED/Wake-Word/Tasten-Verhalten.
+
+   Nebenbefund: HA schickt die TTS-Audiodaten *zusätzlich* ungefragt als
+   `VoiceAssistantAudio`-Chunks (msg 106, ca. 60× je 1027 Bytes plus ein
+   kleinerer Schluss-Chunk) über dieselbe Verbindung, obwohl wir den
+   URL-Weg nutzen — aktuell einfach verworfen (unhandled), verschwendet aber
+   etwas Bandbreite. Nicht dringend: entweder künftig den Push-Weg nutzen
+   (spart die zusätzliche HTTP-Anfrage) oder das Verhalten so lassen.
+
+   Eigenständige Test-Player-Instanz (`s_va_test_player`, komplett getrennt
+   von Wyomings `g_player`) bewusst gewählt, um Wyomings bestehende,
+   funktionierende Wiedergabe-Pipeline nicht anzufassen.
+
+   Noch zu tun (das Einzige, was jetzt noch fehlt, bevor ESPHome den echten
+   Wake-Word-Pfad übernehmen könnte):
    - Eigenes `VoiceAssistantRequest` tatsächlich beim Wake-Word senden statt
      nur per CLI-Testbefehl (ersetzt `wsat_wake_detection()` in
      `app/src/wyoming/wyoming.c` — **noch nicht angefasst**, das ist der
-     Punkt, an dem der ESPHome-Pfad erstmals aktiv in den bestehenden Mic-/
-     Wake-Word-Callback eingreift statt nur passiv mitzulaufen bzw. manuell
-     testbar zu sein; Flags = `USE_VAD` wie oben verifiziert)
-   - Mic-Audio-Streaming dauerhaft an die echte Session koppeln (aktuell nur
-     ein 5s-Timer im Testbefehl) — muss an den tatsächlichen Beginn/Ende der
-     Sprachaufnahme gekoppelt werden, nicht an eine feste Dauer
-   - `VoiceAssistantEventResponse`-Auswertung von reinem Logging auf echte
-     Aktionen umstellen: LED-Show-Steuerung (Äquivalent zu
-     `fback_handle_sys_event()`), TTS-Audio aus den gepushten
-     `VoiceAssistantAudio`-Chunks tatsächlich abspielen (statt nur loggen)
+     einzige verbleibende Schritt, der den ESPHome-Pfad aktiv in den
+     bestehenden Mic-/Wake-Word-Callback eingreifen lässt statt nur passiv
+     mitzulaufen bzw. manuell testbar zu sein. Klar größeres Risiko als alle
+     bisherigen Schritte, da es die Alltagsnutzung direkt betrifft — sollte
+     als eigener, bewusst angekündigter Schritt gemacht werden, nicht
+     nebenbei)
+   - LED-Show-Steuerung an die echten Events koppeln (Äquivalent zu
+     `fback_handle_sys_event()`, das aktuell nur auf Wyoming-Events reagiert)
 6. **Follow-up-Logik**: bei `INTENT_END` mit `continue_conversation=1` die
    `conversation_id` merken, nach Ende der Wiedergabe automatisch neues
    `VoiceAssistantRequest` mit `USE_VAD` (ohne Wake-Word) + derselben

@@ -56,4 +56,12 @@ bool esphome_api_send_voice_assistant_start(const char *conversation_id, uint32_
 // TODO.md) -- exercised via a CLI test command first.
 bool esphome_api_send_voice_assistant_audio(const uint8_t *data, size_t len, bool end);
 
+// Called once per (event_type, name, value) tuple decoded from an incoming
+// VoiceAssistantEventResponse -- once with name/value both "" for an event
+// that carries no data (e.g. RUN_START), once per data item otherwise (e.g.
+// TTS_END typically carries one item, name="url"). Runs on the connection's
+// own task, so keep it quick (set a flag / call another task), don't block.
+typedef void (*esphome_api_va_event_cb_t)(uint32_t event_type, const char *name, const char *value);
+void esphome_api_set_voice_assistant_event_callback(esphome_api_va_event_cb_t cb);
+
 #endif // ESPHOME_API_ESPHOME_API_H_
