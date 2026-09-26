@@ -1,0 +1,15 @@
+name: esphome_native_api
+version: develop
+description: Minimal ESPHome native API server (phase 1 -- connection lifecycle only, no voice assistant yet)
+type: common
+tag: esphome_native_api
+keywords:
+  - esphome
+license: APACHE
+
+build_config:
+  include:
+    - include
+
+source_file:
+  - "src/*.c"

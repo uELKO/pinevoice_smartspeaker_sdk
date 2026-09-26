@@ -1,0 +1,33 @@
+// Copyright 2026
+// SPDX-License-Identifier: Apache-2.0
+//
+// Phase 1: a minimal ESPHome native-API server. Handles the connection
+// lifecycle (Hello/DeviceInfo/ListEntities/Ping/Disconnect) so this device
+// can be added in Home Assistant as an ESPHome node and show up connected --
+// no entities, no voice assistant support yet (see TODO.md, "ESPHome-Native-
+// API statt Wyoming"). Plaintext only; Noise encryption is not implemented,
+// so the corresponding ESPHome/HA config must leave the API key unset.
+
+#ifndef ESPHOME_API_ESPHOME_API_H_
+#define ESPHOME_API_ESPHOME_API_H_
+
+#include <stdint.h>
+
+typedef struct {
+    const char *name;          // hostname-style id, e.g. "pinevoice-a1b2c3"
+    const char *friendly_name; // display name, e.g. "PineVoice Kueche"
+    const char *mac_address;   // "AA:BB:CC:DD:EE:FF"
+    const char *model;         // "PineVoice"
+    const char *manufacturer;  // "Pine64"
+    const char *version;       // our firmware version string
+} esphome_api_device_info_t;
+
+// Must be called once before esphome_api_start(); the struct is copied
+// in, the pointed-to strings are not (they must outlive the server, e.g.
+// string literals or static buffers).
+void esphome_api_set_device_info(const esphome_api_device_info_t *info);
+
+// Spawns the API server task (TCP port 6053, one connection at a time).
+void esphome_api_start(void);
+
+#endif // ESPHOME_API_ESPHOME_API_H_
