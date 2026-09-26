@@ -186,15 +186,45 @@ Neu zu bauen:
 3. ~~**Protobuf-Codec**~~ — s.o., handgeschrieben statt nanopb, bisher
    ausreichend für den kleinen Nachrichtensatz aus Phase 1.
 4. ~~**Verbindungs-Lebenszyklus**: Hello/Connect-Handshake, DeviceInfo-Antwort,
-   (meist leere) ListEntities-Antworten, Ping-Keepalive.~~ — **gebaut und
-   läuft stabil** (Phase 1, s.o.), aber noch nicht gegen ein echtes
-   verbindendes HA getestet, nur der Server-Start selbst.
-5. **Voice-Assistant-Ablauf** (noch nicht angefangen): `SubscribeVoiceAssistantRequest` behandeln →
-   eigenes `VoiceAssistantRequest` senden (ersetzt `wsat_wake_detection()`) →
-   `VoiceAssistantResponse` empfangen → Mic-Audio als `VoiceAssistantAudio`
-   streamen (es gibt auch einen optionalen UDP-Audio-Pfad — erstmal
-   weglassen, alles über den API-Kanal) → `VoiceAssistantEventResponse` für
-   STT/Intent/TTS-Stages auswerten → TTS-Audio zurückspielen.
+   (meist leere) ListEntities-Antworten, Ping-Keepalive.~~ — **gebaut, gegen
+   echtes HA 2026.9.2 getestet, funktioniert** (Phase 1, s.o.).
+5. **Voice-Assistant-Ablauf** (begonnen 2026-09-26): `SubscribeVoiceAssistantRequest`
+   (Subscribe-Flag + Flags merken) und `VoiceAssistantConfigurationRequest`/
+   `-Response` (msg 121/122 — meldet den einen fest eingebauten On-Device-
+   Wake-Word "alexa"/"Alexa" zurück) sind **gebaut und gegen echtes HA
+   2026.9.2 verifiziert**: HA zeigt jetzt "Assist-Satellit: Leerlauf" (vorher
+   "Nicht verfügbar") und "Aktivierungswort: Alexa" (vorher "unavailable") im
+   ESPHome-Geräte-Dashboard. `VoiceAssistantSetConfiguration` (msg 123, zum
+   Wechseln des aktiven Wake-Words) wird noch nicht behandelt — unkritisch,
+   da es ohnehin nur das eine fest verdrahtete Wake-Word gibt, ein Wechsel
+   wäre sowieso wirkungslos.
+
+   Nebenbefund, nicht weiter verfolgt: `SubscribeVoiceAssistantRequest`s
+   `flags`-Feld kam von echtem HA als `0x4`, obwohl `VoiceAssistantSubscribeFlag`
+   in `api.proto` nur `API_AUDIO = 1` kennt. Ursache nicht geklärt (evtl.
+   neuere/interne HA-Flags, die in der öffentlichen `main`-`api.proto` noch
+   fehlen) — wir speichern den Wert nur, ohne aktuell darauf zu reagieren,
+   also ohne Auswirkung.
+
+   Noch zu tun, in dieser Reihenfolge:
+   - Eigenes `VoiceAssistantRequest` beim Wake-Word senden (ersetzt
+     `wsat_wake_detection()` in `app/src/wyoming/wyoming.c:39` — **noch nicht
+     angefasst**, das ist der Punkt, an dem der ESPHome-Pfad erstmals aktiv
+     in den bestehenden Mic-/Wake-Word-Callback eingreift statt nur passiv
+     mitzulaufen)
+   - `VoiceAssistantResponse` empfangen (Port-Feld; 0 bedeutet vermutlich
+     "Audio über die API-Verbindung, kein separates UDP" — noch nicht anhand
+     von echtem HA-Verhalten verifiziert)
+   - Mic-Audio als `VoiceAssistantAudio` streamen (ersetzt
+     `wsat_mic_write_data()` in `mic_streamer_fn`)
+   - `VoiceAssistantEventResponse` für STT/Intent/TTS-Stages auswerten
+     (Äquivalent zu `fback_handle_sys_event()`, das aktuell die LED-Show
+     anhand von Wyoming-Events steuert)
+   - TTS-Audio zurückspielen — noch zu klären, ob das über
+     `VoiceAssistantAudio` (Server→Device) kommt oder über eine URL in den
+     Event-Daten, die das Gerät selbst per HTTP abruft (wie es andere
+     ESPHome-Voice-Satelliten ohne Media-Player-Entity typischerweise
+     machen) — nicht verifiziert, reine Vermutung bisher.
 6. **Follow-up-Logik**: bei `INTENT_END` mit `continue_conversation=1` die
    `conversation_id` merken, nach Ende der Wiedergabe automatisch neues
    `VoiceAssistantRequest` mit `USE_VAD` (ohne Wake-Word) + derselben

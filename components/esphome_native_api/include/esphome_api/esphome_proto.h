@@ -30,6 +30,9 @@
 #define ESPB_MSG_VOICE_ASSISTANT_AUDIO          106
 #define ESPB_MSG_VOICE_ASSISTANT_ANNOUNCE_REQ   119
 #define ESPB_MSG_VOICE_ASSISTANT_ANNOUNCE_DONE  120
+#define ESPB_MSG_VOICE_ASSISTANT_CONFIG_REQUEST 121
+#define ESPB_MSG_VOICE_ASSISTANT_CONFIG_RESPONSE 122
+#define ESPB_MSG_VOICE_ASSISTANT_SET_CONFIG     123
 
 // --- HelloRequest (client->server) field numbers --
 #define ESPB_HELLO_REQ_F_CLIENT_INFO   1
@@ -61,6 +64,18 @@
 // --- SubscribeVoiceAssistantRequest (client->server) field numbers --
 #define ESPB_SUB_VA_F_SUBSCRIBE 1
 #define ESPB_SUB_VA_F_FLAGS     2
+
+// --- VoiceAssistantConfigurationResponse (server->client) field numbers --
+// (available_wake_words is repeated VoiceAssistantWakeWord; encode each as a
+// submessage with the ESPB_VA_WAKE_WORD_F_* fields below.)
+#define ESPB_VA_CONFIG_RESP_F_AVAILABLE_WAKE_WORDS  1
+#define ESPB_VA_CONFIG_RESP_F_ACTIVE_WAKE_WORDS     2
+#define ESPB_VA_CONFIG_RESP_F_MAX_ACTIVE_WAKE_WORDS 3
+
+// --- VoiceAssistantWakeWord submessage field numbers --
+#define ESPB_VA_WAKE_WORD_F_ID                1
+#define ESPB_VA_WAKE_WORD_F_WAKE_WORD         2
+#define ESPB_VA_WAKE_WORD_F_TRAINED_LANGUAGES 3
 
 // --- VoiceAssistantRequest (device->server) field numbers --
 #define ESPB_VA_REQ_F_START           1

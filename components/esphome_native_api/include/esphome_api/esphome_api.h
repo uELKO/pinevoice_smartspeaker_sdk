@@ -12,6 +12,7 @@
 #define ESPHOME_API_ESPHOME_API_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef struct {
     const char *name;          // hostname-style id, e.g. "pinevoice-a1b2c3"
@@ -29,5 +30,12 @@ void esphome_api_set_device_info(const esphome_api_device_info_t *info);
 
 // Spawns the API server task (TCP port 6053, one connection at a time).
 void esphome_api_start(void);
+
+// Whether the currently connected HA client (if any) has an active
+// SubscribeVoiceAssistantRequest subscription, and the flags it sent
+// (see ESPB_VA_SUBSCRIBE_* in esphome_proto.h). false/0 if never subscribed,
+// or if the client explicitly unsubscribed, or if no client is connected.
+bool esphome_api_voice_assistant_subscribed(void);
+uint32_t esphome_api_voice_assistant_flags(void);
 
 #endif // ESPHOME_API_ESPHOME_API_H_

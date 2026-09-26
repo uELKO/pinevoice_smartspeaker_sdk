@@ -24,10 +24,22 @@
 #define ESPB_TX_BUF_SIZE 512
 
 static esphome_api_device_info_t s_device_info;
+static volatile bool s_va_subscribed = false;
+static volatile uint32_t s_va_flags = 0;
 
 void esphome_api_set_device_info(const esphome_api_device_info_t *info)
 {
     s_device_info = *info;
+}
+
+bool esphome_api_voice_assistant_subscribed(void)
+{
+    return s_va_subscribed;
+}
+
+uint32_t esphome_api_voice_assistant_flags(void)
+{
+    return s_va_flags;
 }
 
 static bool send_message(esphome_frame_io_t *io, uint32_t msg_type, const uint8_t *payload, size_t len)
@@ -85,6 +97,47 @@ static void handle_connect(esphome_frame_io_t *io)
     send_message(io, ESPB_MSG_CONNECT_RESPONSE, buf, n);
 }
 
+static void handle_subscribe_voice_assistant(const uint8_t *payload, size_t len)
+{
+    pb_reader_t r;
+    pb_reader_init(&r, payload, len);
+    pb_field_t f;
+    bool subscribe = false;
+    uint32_t flags = 0;
+    while (pb_reader_next_field(&r, &f)) {
+        if (f.field_number == ESPB_SUB_VA_F_SUBSCRIBE && f.wire_type == PB_WIRE_TYPE_VARINT) {
+            subscribe = f.varint_value != 0;
+        } else if (f.field_number == ESPB_SUB_VA_F_FLAGS && f.wire_type == PB_WIRE_TYPE_VARINT) {
+            flags = (uint32_t)f.varint_value;
+        }
+    }
+    s_va_subscribed = subscribe;
+    s_va_flags = subscribe ? flags : 0;
+    LOGI(TAG, "SubscribeVoiceAssistantRequest: subscribe=%d flags=0x%x", (int)subscribe, (unsigned)flags);
+}
+
+// Reports the one fixed, built-in on-device wake word (see the "alexa"
+// wsat_wake config in app/src/wyoming/wyoming.c) -- this device has no
+// runtime-selectable wake-word set, so available == active, always. Without
+// this response HA's ESPHome integration leaves the "Aktivierungswort" and
+// "Assist-Satellit" entities stuck on "unavailable" (observed against real
+// HA 2026.9.2).
+static void handle_voice_assistant_config(esphome_frame_io_t *io)
+{
+    uint8_t ww_buf[64];
+    size_t ww_n = 0;
+    pbw_write_string_field(ww_buf, sizeof(ww_buf), &ww_n, ESPB_VA_WAKE_WORD_F_ID, "alexa");
+    pbw_write_string_field(ww_buf, sizeof(ww_buf), &ww_n, ESPB_VA_WAKE_WORD_F_WAKE_WORD, "Alexa");
+    pbw_write_string_field(ww_buf, sizeof(ww_buf), &ww_n, ESPB_VA_WAKE_WORD_F_TRAINED_LANGUAGES, "en");
+
+    uint8_t buf[ESPB_TX_BUF_SIZE];
+    size_t n = 0;
+    pbw_write_submessage_field(buf, sizeof(buf), &n, ESPB_VA_CONFIG_RESP_F_AVAILABLE_WAKE_WORDS, ww_buf, ww_n);
+    pbw_write_string_field(buf, sizeof(buf), &n, ESPB_VA_CONFIG_RESP_F_ACTIVE_WAKE_WORDS, "alexa");
+    pbw_write_varint_field(buf, sizeof(buf), &n, ESPB_VA_CONFIG_RESP_F_MAX_ACTIVE_WAKE_WORDS, 1);
+    send_message(io, ESPB_MSG_VOICE_ASSISTANT_CONFIG_RESPONSE, buf, n);
+}
+
 static void handle_device_info(esphome_frame_io_t *io)
 {
     uint8_t buf[ESPB_TX_BUF_SIZE];
@@ -137,6 +190,12 @@ static void handle_connection(int connfd)
         case ESPB_MSG_DEVICE_INFO_REQUEST:
             handle_device_info(&io);
             break;
+        case ESPB_MSG_SUBSCRIBE_VOICE_ASSISTANT_REQ:
+            handle_subscribe_voice_assistant(rx_buf, payload_len);
+            break;
+        case ESPB_MSG_VOICE_ASSISTANT_CONFIG_REQUEST:
+            handle_voice_assistant_config(&io);
+            break;
         case ESPB_MSG_LIST_ENTITIES_REQUEST:
             // No native entities yet (MQTT still owns restart/LED/volume) --
             // an immediately-empty entity list is a normal, valid response.
@@ -148,6 +207,8 @@ static void handle_connection(int connfd)
         case ESPB_MSG_DISCONNECT_REQUEST:
             send_empty(&io, ESPB_MSG_DISCONNECT_RESPONSE);
             LOGI(TAG, "client requested disconnect");
+            s_va_subscribed = false;
+            s_va_flags = 0;
             lwip_close(connfd);
             return;
         default:
@@ -156,6 +217,11 @@ static void handle_connection(int connfd)
         }
     }
 
+    // Also reached on an abrupt close (rc == -1/-2 above) -- a client that
+    // drops the TCP connection without a DisconnectRequest must not leave a
+    // stale subscription behind for the next connection to inherit.
+    s_va_subscribed = false;
+    s_va_flags = 0;
     lwip_close(connfd);
 }
 
