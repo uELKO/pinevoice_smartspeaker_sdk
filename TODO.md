@@ -227,25 +227,60 @@ Neu zu bauen:
    `AuthenticationRequest`/-`Response`, gleiche IDs 3/4, als deprecated
    markiert aber weiterhin vom echten Client gesendet).
 
+   **Update (2026-09-26, Fortsetzung): kompletter Pipeline-Roundtrip per CLI-
+   Testbefehl verifiziert — STT → Intent → TTS funktioniert bereits
+   End-to-End über die ESPHome-API gegen echtes HA.** Ablauf: `esphome_va_test`
+   sendet `VoiceAssistantRequest` mit Flags = **nur `USE_VAD`** (siehe
+   wichtige Korrektur unten), streamt danach 5s Mic-Audio als
+   `VoiceAssistantAudio` (Tap in `mic_streamer_fn`, zusätzlich zum
+   unveränderten `wsat_mic_write_data()`-Aufruf, per `s_va_test_streaming`-
+   Flag). Ergebnis: `VoiceAssistantEventResponse` (jetzt geparst,
+   `handle_voice_assistant_event()`) zeigte den vollen Ablauf RUN_START →
+   STT_START → STT_VAD_START/END → **STT_END mit echtem Transkript** →
+   INTENT_START/END mit echter Konversationsantwort → TTS_START/STREAM_START/
+   END mit TTS-URL → RUN_END.
+
+   **Wichtige Korrektur:** `USE_WAKE_WORD`-Flag beim ersten Testlauf gesetzt
+   → sofortiger Fehler `wake-engine-missing` / "No wake word engine". Das
+   Flag heißt zwar "use wake word", bedeutet aber "HA soll selbst eine
+   Wake-Word-Erkennungsstufe ausführen" — nicht "Wake-Word wurde schon
+   erkannt". Für ein Gerät mit reiner On-Device-Wake-Word-Erkennung (wie
+   PineVoice) ist das falsch; richtig ist **nur `USE_VAD`**, damit die
+   Pipeline direkt bei STT startet. Wichtig für die spätere echte Verdrahtung
+   an den Wake-Word-Callback.
+
+   **Zweiter gefundener und behobener Bug:** Nach dem ersten erfolgreichen
+   Roundtrip riss die Verbindung mit `malformed/oversized frame, closing
+   connection` ab (harmloser Sofort-Reconnect, aber ein echter Bug).
+   Ursache: `ESPB_RX_BUF_SIZE` war 512 Bytes, HA schickt aber TTS-Audio
+   tatsächlich per `VoiceAssistantAudio` (msg 106) über dieselbe
+   API-Verbindung (nicht nur die URL in den Event-Daten) — beobachteter
+   Chunk war 1027 Bytes. Auf 4096 erhöht (`rx_buf` ist `static`, kostet also
+   BSS statt Task-Stack), danach kein Abriss mehr, derselbe Chunk kam sauber
+   an (aktuell nur geloggt, noch nicht abgespielt). Damit auch geklärt: TTS
+   kommt **sowohl** als URL in den Event-Daten **als auch** als Rohaudio über
+   `VoiceAssistantAudio` — device kann sich aussuchen, welchen Weg es nutzt;
+   da die Bytes ohnehin ankommen, spricht das für "einfach die gepushten
+   Bytes abspielen" statt zusätzlich per HTTP zu holen.
+
+   All das bisher **ausschließlich über den CLI-Testbefehl**, komplett
+   unabhängig vom echten Wake-Word-Pfad — Risiko für die Alltagsnutzung war
+   die ganze Zeit praktisch null.
+
    Noch zu tun, in dieser Reihenfolge:
    - Eigenes `VoiceAssistantRequest` tatsächlich beim Wake-Word senden statt
      nur per CLI-Testbefehl (ersetzt `wsat_wake_detection()` in
-     `app/src/wyoming/wyoming.c:41` — **noch nicht angefasst**, das ist der
+     `app/src/wyoming/wyoming.c` — **noch nicht angefasst**, das ist der
      Punkt, an dem der ESPHome-Pfad erstmals aktiv in den bestehenden Mic-/
      Wake-Word-Callback eingreift statt nur passiv mitzulaufen bzw. manuell
-     testbar zu sein)
-   - Mic-Audio als `VoiceAssistantAudio` streamen (ersetzt
-     `wsat_mic_write_data()` in `mic_streamer_fn`) — ohne das bricht jeder
-     echte Pipeline-Run an der STT-Stufe ab, da nie Audio ankommt (wie im
-     obigen Test zu erwarten)
-   - `VoiceAssistantEventResponse` für STT/Intent/TTS-Stages auswerten
-     (Äquivalent zu `fback_handle_sys_event()`, das aktuell die LED-Show
-     anhand von Wyoming-Events steuert)
-   - TTS-Audio zurückspielen — noch zu klären, ob das über
-     `VoiceAssistantAudio` (Server→Device) kommt oder über eine URL in den
-     Event-Daten, die das Gerät selbst per HTTP abruft (wie es andere
-     ESPHome-Voice-Satelliten ohne Media-Player-Entity typischerweise
-     machen) — nicht verifiziert, reine Vermutung bisher.
+     testbar zu sein; Flags = `USE_VAD` wie oben verifiziert)
+   - Mic-Audio-Streaming dauerhaft an die echte Session koppeln (aktuell nur
+     ein 5s-Timer im Testbefehl) — muss an den tatsächlichen Beginn/Ende der
+     Sprachaufnahme gekoppelt werden, nicht an eine feste Dauer
+   - `VoiceAssistantEventResponse`-Auswertung von reinem Logging auf echte
+     Aktionen umstellen: LED-Show-Steuerung (Äquivalent zu
+     `fback_handle_sys_event()`), TTS-Audio aus den gepushten
+     `VoiceAssistantAudio`-Chunks tatsächlich abspielen (statt nur loggen)
 6. **Follow-up-Logik**: bei `INTENT_END` mit `continue_conversation=1` die
    `conversation_id` merken, nach Ende der Wiedergabe automatisch neues
    `VoiceAssistantRequest` mit `USE_VAD` (ohne Wake-Word) + derselben

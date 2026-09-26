@@ -20,7 +20,11 @@
 #define TAG "esphome_api"
 
 #define ESPB_PORT 6053
-#define ESPB_RX_BUF_SIZE 512
+// Bumped from 512 after a real pipeline run against HA closed the
+// connection with "malformed/oversized frame" -- some inbound message (not
+// yet pinned down exactly which) exceeded that. rx_buf is `static`, so this
+// costs BSS, not the 4096-byte esphome_api task stack.
+#define ESPB_RX_BUF_SIZE 4096
 #define ESPB_TX_BUF_SIZE 512
 
 static esphome_api_device_info_t s_device_info;
@@ -213,6 +217,76 @@ bool esphome_api_send_voice_assistant_start(const char *conversation_id, uint32_
     return true;
 }
 
+// Generous headroom over the app's actual chunk size (1600 bytes today) --
+// this is a generic component, so it doesn't know the app's chunking, just
+// refuses anything that would overflow its static scratch buffer.
+#define ESPB_VA_AUDIO_TX_MAX_CHUNK 4000
+
+bool esphome_api_send_voice_assistant_audio(const uint8_t *data, size_t len, bool end)
+{
+    int connfd = s_active_connfd;
+    if (connfd < 0) {
+        return false;
+    }
+    if (len > ESPB_VA_AUDIO_TX_MAX_CHUNK) {
+        LOGW(TAG, "send_voice_assistant_audio: chunk too large (%u > %u), dropping",
+             (unsigned)len, (unsigned)ESPB_VA_AUDIO_TX_MAX_CHUNK);
+        return false;
+    }
+    static uint8_t buf[ESPB_VA_AUDIO_TX_MAX_CHUNK + 16];
+    size_t n = 0;
+    if (data != NULL && len > 0) {
+        pbw_write_bytes_field(buf, sizeof(buf), &n, ESPB_VA_AUDIO_F_DATA, data, len);
+    }
+    if (end) {
+        pbw_write_bool_field(buf, sizeof(buf), &n, ESPB_VA_AUDIO_F_END, true);
+    }
+    esphome_frame_io_t io = { .fd = connfd };
+    return send_message(&io, ESPB_MSG_VOICE_ASSISTANT_AUDIO, buf, n);
+}
+
+// Diagnostic only for now (see TODO.md) -- just logs event_type and any
+// name/value data pairs so we can see *why* a pipeline run ends, instead of
+// guessing from silence. Not yet wired into any LED/state behavior.
+static void handle_voice_assistant_event(const uint8_t *payload, size_t len)
+{
+    pb_reader_t r;
+    pb_reader_init(&r, payload, len);
+    pb_field_t f;
+    // proto3 elides a field encoding its default value, and 0 (VOICE_ASSISTANT_ERROR)
+    // is event_type's default -- so an absent field here means ERROR, not "unknown".
+    uint32_t event_type = ESPB_VA_EVENT_ERROR;
+    char data_buf[192] = {0};
+    size_t data_used = 0;
+
+    while (pb_reader_next_field(&r, &f)) {
+        if (f.field_number == ESPB_VA_EVT_F_EVENT_TYPE && f.wire_type == PB_WIRE_TYPE_VARINT) {
+            event_type = (uint32_t)f.varint_value;
+        } else if (f.field_number == ESPB_VA_EVT_F_DATA && f.wire_type == PB_WIRE_TYPE_LEN) {
+            pb_reader_t sub;
+            pb_reader_init(&sub, f.bytes_value, f.bytes_len);
+            pb_field_t sf;
+            char name[32] = {0};
+            char value[96] = {0};
+            while (pb_reader_next_field(&sub, &sf)) {
+                if (sf.field_number == ESPB_VA_EVT_DATA_F_NAME && sf.wire_type == PB_WIRE_TYPE_LEN) {
+                    pb_field_to_cstr(&sf, name, sizeof(name));
+                } else if (sf.field_number == ESPB_VA_EVT_DATA_F_VALUE && sf.wire_type == PB_WIRE_TYPE_LEN) {
+                    pb_field_to_cstr(&sf, value, sizeof(value));
+                }
+            }
+            if (data_used < sizeof(data_buf)) {
+                int written = snprintf(data_buf + data_used, sizeof(data_buf) - data_used,
+                                        "%s%s=%s", data_used ? "," : "", name, value);
+                if (written > 0) {
+                    data_used += (size_t)written;
+                }
+            }
+        }
+    }
+    LOGI(TAG, "VoiceAssistantEventResponse: event_type=%u data={%s}", (unsigned)event_type, data_buf);
+}
+
 static void handle_device_info(esphome_frame_io_t *io)
 {
     uint8_t buf[ESPB_TX_BUF_SIZE];
@@ -274,6 +348,9 @@ static void handle_connection(int connfd)
             break;
         case ESPB_MSG_VOICE_ASSISTANT_RESPONSE:
             handle_voice_assistant_response(rx_buf, payload_len);
+            break;
+        case ESPB_MSG_VOICE_ASSISTANT_EVENT_RESPONSE:
+            handle_voice_assistant_event(rx_buf, payload_len);
             break;
         case ESPB_MSG_LIST_ENTITIES_REQUEST:
             // No native entities yet (MQTT still owns restart/LED/volume) --

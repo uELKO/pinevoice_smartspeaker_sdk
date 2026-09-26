@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct {
     const char *name;          // hostname-style id, e.g. "pinevoice-a1b2c3"
@@ -46,5 +47,13 @@ uint32_t esphome_api_voice_assistant_flags(void);
 // TODO.md) -- exposed for a CLI test command first.
 bool esphome_api_send_voice_assistant_start(const char *conversation_id, uint32_t flags,
                                              uint32_t timeout_ms, uint32_t *out_port, bool *out_error);
+
+// Sends one chunk of mic PCM as VoiceAssistantAudio on the currently active
+// connection (no response expected). Pass end=true (data/len may be 0/NULL)
+// to close the audio stream once the pipeline run is done. Returns false if
+// there is no active connection, len exceeds the internal chunk buffer, or
+// the write failed. Not yet called from the real wake-word path (see
+// TODO.md) -- exercised via a CLI test command first.
+bool esphome_api_send_voice_assistant_audio(const uint8_t *data, size_t len, bool end);
 
 #endif // ESPHOME_API_ESPHOME_API_H_
