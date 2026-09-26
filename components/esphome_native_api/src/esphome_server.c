@@ -71,6 +71,20 @@ static void handle_hello(esphome_frame_io_t *io, const uint8_t *payload, size_t 
     send_message(io, ESPB_MSG_HELLO_RESPONSE, buf, n);
 }
 
+// We advertise uses_password=false in DeviceInfoResponse, but aioesphomeapi
+// still sends ConnectRequest regardless and expects a matching
+// ConnectResponse per the protocol spec. Found unhandled (logged as
+// "unhandled msg_type 3") while first testing against real HA 2026.9.2 --
+// the connection stayed usable without it in that test, but this closes the
+// gap rather than relying on that being true across client versions.
+static void handle_connect(esphome_frame_io_t *io)
+{
+    uint8_t buf[8];
+    size_t n = 0;
+    pbw_write_bool_field(buf, sizeof(buf), &n, ESPB_CONNECT_RESP_F_INVALID_PASSWORD, false);
+    send_message(io, ESPB_MSG_CONNECT_RESPONSE, buf, n);
+}
+
 static void handle_device_info(esphome_frame_io_t *io)
 {
     uint8_t buf[ESPB_TX_BUF_SIZE];
@@ -116,6 +130,9 @@ static void handle_connection(int connfd)
         switch (msg_type) {
         case ESPB_MSG_HELLO_REQUEST:
             handle_hello(&io, rx_buf, payload_len);
+            break;
+        case ESPB_MSG_CONNECT_REQUEST:
+            handle_connect(&io);
             break;
         case ESPB_MSG_DEVICE_INFO_REQUEST:
             handle_device_info(&io);

@@ -13,6 +13,8 @@
 // --- Message type IDs (the varint after the length in a plaintext frame) --
 #define ESPB_MSG_HELLO_REQUEST                  1
 #define ESPB_MSG_HELLO_RESPONSE                 2
+#define ESPB_MSG_CONNECT_REQUEST                3
+#define ESPB_MSG_CONNECT_RESPONSE               4
 #define ESPB_MSG_DISCONNECT_REQUEST             5
 #define ESPB_MSG_DISCONNECT_RESPONSE            6
 #define ESPB_MSG_PING_REQUEST                   7
@@ -39,6 +41,9 @@
 #define ESPB_HELLO_RESP_F_API_VER_MINOR 2
 #define ESPB_HELLO_RESP_F_SERVER_INFO   3
 #define ESPB_HELLO_RESP_F_NAME          4
+
+// --- ConnectResponse (server->client) field numbers --
+#define ESPB_CONNECT_RESP_F_INVALID_PASSWORD 1
 
 // --- DeviceInfoResponse (server->client) field numbers we populate --
 // (DeviceInfoResponse has ~27 fields upstream; everything else is optional
