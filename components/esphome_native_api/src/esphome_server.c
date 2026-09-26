@@ -184,6 +184,13 @@ static void esphome_server_task(void *arg)
                 continue;
             }
             LOGW(TAG, "accept() failed, errno=%d", errno);
+            // A persistent (non-EINTR) accept() error would otherwise retry
+            // in a tight loop with no blocking syscall in between -- a
+            // busy-loop at AOS_DEFAULT_APP_PRI that could starve other
+            // tasks at the same priority. Found while debugging the
+            // 2026-09-26 hang (not confirmed as the cause, but a real bug
+            // regardless).
+            aos_msleep(200);
             continue;
         }
         // One connection at a time, same as the Wyoming satellite server --

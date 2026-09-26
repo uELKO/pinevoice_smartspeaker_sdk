@@ -31,6 +31,13 @@
 #define LWIP_NETIF_API          1
 
 #define LWIP_MDNS_RESPONDER     1
+/* Default is 1. Wyoming's "_wyoming._tcp" already fills that single slot,
+ * so the ESPHome API's "_esphomelib._tcp" service (see
+ * app/src/esphome_api/esphome_mdns.c) could never actually register --
+ * mdns_resp_add_service() silently returned ERR_MEM. Found while debugging
+ * the 2026-09-26 hang (this wasn't the cause, but was a real, separate bug
+ * hit along the way). */
+#define MDNS_MAX_SERVICES       2
 #define LWIP_IGMP               1
 //#define LWIP_AUTOIP             1
 ////#define LWIP_IPV6_MLD           1
