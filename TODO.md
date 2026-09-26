@@ -120,10 +120,29 @@ normaler WiFi/DHCP/MQTT-Verlauf, keine Auffälligkeiten. Welcher der beiden
 Fixes ursächlich war (oder beide), ist nicht einzeln isoliert — aber der
 Hänger ist weg, nicht nur eine Vermutung.
 
-**Noch offen:** Bisher nur bestätigt, dass das Gerät selbst nicht mehr hängt.
-**Noch nicht getestet:** ob Home Assistant den ESPHome-API-Server über mDNS
-tatsächlich findet/verbindet (`_esphomelib._tcp.local.`) — das wäre der
-nächste sinnvolle Schritt vor Phase 2 (Voice Assistant Ablauf).
+**mDNS-Discovery und HA-Verbindung bestätigt (2026-09-26):** HA hat
+`pinevoice-2a893b` über `_esphomelib._tcp.local.` gefunden und als
+ESPHome-Integration angeboten; nach "Hinzufügen" per Live-Konsole
+verifiziert. Dabei einen zweiten Lücke gefunden und behoben: `ConnectRequest`
+(msg_type 3) wurde trotz `uses_password=false` von `aioesphomeapi` gesendet
+und war unbehandelt ("unhandled msg_type 3") — gehört genauso zum
+Verbindungs-Lebenszyklus wie Hello/DeviceInfo, war in Phase 1 aber
+übersehen worden. `ConnectResponse` jetzt implementiert
+(`components/esphome_native_api`), erneut gegen echtes HA 2026.9.2
+verifiziert: keine unbehandelten `ConnectRequest`s mehr, LED/Wake-Word
+weiterhin normal.
+
+**Noch offen:** Es wurden noch keine echten Entities gemeldet
+(`ListEntitiesRequest` beantworten wir bewusst leer, s.o.), und mehrere von
+HA gesendete Requests werden weiterhin bewusst ignoriert (`SubscribeStates`,
+`SubscribeHomeassistantServices`, `SubscribeHomeAssistantStates`,
+`SubscribeVoiceAssistantRequest`, sowie ein bisher nicht identifizierter
+Typ 121 — vermutlich eine Voice-Assistant-Konfigurationsabfrage, ausgelöst
+durch die in `DeviceInfoResponse` gesetzten Voice-Assistant-Feature-Flags).
+Alle bisher beobachtet ohne negative Auswirkung (Verbindung bleibt stabil),
+aber nicht einzeln verifiziert, was HA bei fehlender Antwort tatsächlich
+erwartet. Nächster sinnvoller Schritt: Phase 2 (Voice Assistant Ablauf), die
+`SubscribeVoiceAssistantRequest` ohnehin echt beantworten muss.
 
 Ansonsten Grobschätzung weiterhin **2-4 Wochen**, deutlich größer als alles
 bisher Gemachte. Motivation: Wyoming implementiert bei Home Assistant kein
