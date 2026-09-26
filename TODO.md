@@ -92,40 +92,38 @@ speziell für Follow-ups.
 → Das ist der Hauptauslöser für die ESPHome-Migration unten. Wird durch die
 gelöst, nicht separat weiterverfolgt.
 
-## ESPHome-Native-API statt Wyoming (großer Umbau) — Phase 1 gebaut, aber deaktiviert (Hänger)
+## ESPHome-Native-API statt Wyoming (großer Umbau) — Phase 1 läuft
 
 **Status (2026-09-26): Phase 1 (Verbindungs-Lebenszyklus, kein Voice Assistant)
-ist implementiert (`components/esphome_native_api`, neu, Plaintext-Framing,
-kein Noise), aber im Code deaktiviert (`#if 0` in `wyoming_init()`,
-`solutions/pinevoice_fw_e907/app/src/wyoming/wyoming.c`).**
+ist implementiert (`components/esphome_native_api`, Plaintext-Framing, kein
+Noise) und aktiv (`wyoming_init()` in
+`solutions/pinevoice_fw_e907/app/src/wyoming/wyoming.c` startet den
+ESPHome-API-Server jetzt bei jedem Boot).**
 
-**Bug, noch nicht root-caused:** Kurz nach dem Flashen wurde das Gerät
-komplett unresponsiv (kein Wake-Word, keine Tasten außer Mute), LED-Ring
-blieb auf der reinen Rot-Fehleranimation (`s_light_show_error` in
-`pwm_led_shows.h` — eindeutig identifiziert, da es die einzige rein rote
-Show im System ist) hängen. Reproduziert zuverlässig über einen Hard-
-Powercycle hinweg (deterministisch, kein einmaliger Aussetzer). Rollback
-(Block auskommentiert) behebt es, bestätigt getestet.
+**Hänger-Bug behoben, per Live-Konsole bestätigt:** Der beim ersten Test
+aufgetretene komplette Hänger (kein Wake-Word, keine Tasten außer Mute,
+LED-Ring auf Rot-Fehleranimation, deterministisch über Hard-Powercycle
+reproduzierbar) trat nach den beiden folgenden Fixes nicht mehr auf, über
+einen sauberen Powercycle mit von Anfang an mitlaufender Konsole beobachtet:
+- `MDNS_MAX_SERVICES` war in diesem lwIP-Build auf **1** begrenzt; Wyoming
+  belegte den einzigen Slot bereits, `esphome_mdns_advertise_start()`s
+  `mdns_resp_add_service()`-Aufruf für `_esphomelib._tcp` konnte also nie
+  erfolgreich sein. Auf **2** erhöht (`boards/bl606p_pinevoice_e907/include/
+  lwipopts.h`).
+- `esphome_server_task`s Retry-Schleife bei `accept()`-Fehlern hatte kein
+  Backoff (`aos_msleep(200)` ergänzt in `components/esphome_native_api/src/
+  esphome_server.c`).
 
-Verdächtige, noch keiner bestätigt:
-- `MDNS_MAX_SERVICES` ist in diesem lwIP-Build auf **1** begrenzt; Wyoming
-  belegt den einzigen Slot bereits, `esphome_mdns_advertise_start()`s
-  `mdns_resp_add_service()`-Aufruf für `_esphomelib._tcp` kann also gar nicht
-  erfolgreich sein (wird zwar sauber behandelt, `ERR_MEM` zurückgegeben, kein
-  Crash — aber das erklärt nicht den Hänger, nur dass mDNS-Discovery so nie
-  funktioniert hätte)
-- `esphome_server_task`s Retry-Schleife bei `accept()`-Fehlern hat kein
-  Backoff — bei dauerhaftem `accept()`-Fehler würde das auf
-  `AOS_DEFAULT_APP_PRI` in einer Busy-Loop laufen und könnte andere Tasks
-  auf derselben Priorität aushungern
-- Ein zusätzlicher, dauerhaft laufender Server-Task erhöht Stack-/Heap-Druck,
-  könnte auf diesem Board knapper sein als angenommen
+Boot-Log zeigt sauberen Start: `esphome_api esphome_server.c[176]:
+listening on port 6053` direkt nach `wyoming.c[333]: Wyoming init`, danach
+normaler WiFi/DHCP/MQTT-Verlauf, keine Auffälligkeiten. Welcher der beiden
+Fixes ursächlich war (oder beide), ist nicht einzeln isoliert — aber der
+Hänger ist weg, nicht nur eine Vermutung.
 
-**Vor jeder erneuten Aktivierung**: Ursache tatsächlich verifizieren (Konsole/
-Logs), nicht nur raten — das Gerät ist im Alltagsbetrieb. Live-Konsolen-Zugriff
-war bei diesem Versuch nicht möglich (COM-Port ließ sich nicht freigeben),
-beim nächsten Anlauf zuerst sicherstellen, dass kein Terminal-Programm den
-Port blockiert.
+**Noch offen:** Bisher nur bestätigt, dass das Gerät selbst nicht mehr hängt.
+**Noch nicht getestet:** ob Home Assistant den ESPHome-API-Server über mDNS
+tatsächlich findet/verbindet (`_esphomelib._tcp.local.`) — das wäre der
+nächste sinnvolle Schritt vor Phase 2 (Voice Assistant Ablauf).
 
 Ansonsten Grobschätzung weiterhin **2-4 Wochen**, deutlich größer als alles
 bisher Gemachte. Motivation: Wyoming implementiert bei Home Assistant kein
@@ -169,8 +167,9 @@ Neu zu bauen:
 3. ~~**Protobuf-Codec**~~ — s.o., handgeschrieben statt nanopb, bisher
    ausreichend für den kleinen Nachrichtensatz aus Phase 1.
 4. ~~**Verbindungs-Lebenszyklus**: Hello/Connect-Handshake, DeviceInfo-Antwort,
-   (meist leere) ListEntities-Antworten, Ping-Keepalive.~~ — **gebaut**
-   (Phase 1), aber ungetestet gegen echtes HA (Hänger kam dazwischen, s.o.).
+   (meist leere) ListEntities-Antworten, Ping-Keepalive.~~ — **gebaut und
+   läuft stabil** (Phase 1, s.o.), aber noch nicht gegen ein echtes
+   verbindendes HA getestet, nur der Server-Start selbst.
 5. **Voice-Assistant-Ablauf** (noch nicht angefangen): `SubscribeVoiceAssistantRequest` behandeln →
    eigenes `VoiceAssistantRequest` senden (ersetzt `wsat_wake_detection()`) →
    `VoiceAssistantResponse` empfangen → Mic-Audio als `VoiceAssistantAudio`
