@@ -27,6 +27,17 @@ static esphome_api_device_info_t s_device_info;
 static volatile bool s_va_subscribed = false;
 static volatile uint32_t s_va_flags = 0;
 
+// Single-connection model (see esphome_server_task) -- connfd of the one
+// currently connected client, or -1 if none. Lets esphome_api_send_voice_
+// assistant_start() write onto the connection from a different task than
+// the one blocked reading it in handle_connection().
+static volatile int s_active_connfd = -1;
+static aos_sem_t s_va_response_sem;
+static bool s_va_response_sem_ready = false;
+static volatile bool s_va_response_pending = false;
+static volatile uint32_t s_va_response_port = 0;
+static volatile bool s_va_response_error = false;
+
 void esphome_api_set_device_info(const esphome_api_device_info_t *info)
 {
     s_device_info = *info;
@@ -138,6 +149,70 @@ static void handle_voice_assistant_config(esphome_frame_io_t *io)
     send_message(io, ESPB_MSG_VOICE_ASSISTANT_CONFIG_RESPONSE, buf, n);
 }
 
+static void handle_voice_assistant_response(const uint8_t *payload, size_t len)
+{
+    pb_reader_t r;
+    pb_reader_init(&r, payload, len);
+    pb_field_t f;
+    uint32_t port = 0;
+    bool error = false;
+    while (pb_reader_next_field(&r, &f)) {
+        if (f.field_number == ESPB_VA_RESP_F_PORT && f.wire_type == PB_WIRE_TYPE_VARINT) {
+            port = (uint32_t)f.varint_value;
+        } else if (f.field_number == ESPB_VA_RESP_F_ERROR && f.wire_type == PB_WIRE_TYPE_VARINT) {
+            error = f.varint_value != 0;
+        }
+    }
+    LOGI(TAG, "VoiceAssistantResponse: port=%u error=%d", (unsigned)port, (int)error);
+    s_va_response_port = port;
+    s_va_response_error = error;
+    if (s_va_response_pending) {
+        s_va_response_pending = false;
+        aos_sem_signal(&s_va_response_sem);
+    }
+}
+
+bool esphome_api_send_voice_assistant_start(const char *conversation_id, uint32_t flags,
+                                             uint32_t timeout_ms, uint32_t *out_port, bool *out_error)
+{
+    int connfd = s_active_connfd;
+    if (connfd < 0) {
+        LOGW(TAG, "send_voice_assistant_start: no active connection");
+        return false;
+    }
+    if (!s_va_response_sem_ready) {
+        aos_sem_new(&s_va_response_sem, 0);
+        s_va_response_sem_ready = true;
+    }
+    // Drain any stale signal left over from a previous call that timed out
+    // after its response finally arrived, so we don't return instantly on
+    // a response that isn't actually ours.
+    while (aos_sem_wait(&s_va_response_sem, 0) == 0) { }
+
+    uint8_t buf[128];
+    size_t n = 0;
+    pbw_write_bool_field(buf, sizeof(buf), &n, ESPB_VA_REQ_F_START, true);
+    pbw_write_string_field(buf, sizeof(buf), &n, ESPB_VA_REQ_F_CONVERSATION_ID, conversation_id ? conversation_id : "");
+    pbw_write_varint_field(buf, sizeof(buf), &n, ESPB_VA_REQ_F_FLAGS, flags);
+
+    esphome_frame_io_t io = { .fd = connfd };
+    s_va_response_pending = true;
+    if (!send_message(&io, ESPB_MSG_VOICE_ASSISTANT_REQUEST, buf, n)) {
+        s_va_response_pending = false;
+        return false;
+    }
+
+    if (aos_sem_wait(&s_va_response_sem, timeout_ms) != 0) {
+        s_va_response_pending = false;
+        LOGW(TAG, "send_voice_assistant_start: timed out waiting for VoiceAssistantResponse");
+        return false;
+    }
+
+    if (out_port) *out_port = s_va_response_port;
+    if (out_error) *out_error = s_va_response_error;
+    return true;
+}
+
 static void handle_device_info(esphome_frame_io_t *io)
 {
     uint8_t buf[ESPB_TX_BUF_SIZE];
@@ -166,6 +241,7 @@ static void handle_connection(int connfd)
     static uint8_t rx_buf[ESPB_RX_BUF_SIZE];
 
     LOGI(TAG, "client connected");
+    s_active_connfd = connfd;
 
     while (1) {
         uint32_t msg_type;
@@ -196,6 +272,9 @@ static void handle_connection(int connfd)
         case ESPB_MSG_VOICE_ASSISTANT_CONFIG_REQUEST:
             handle_voice_assistant_config(&io);
             break;
+        case ESPB_MSG_VOICE_ASSISTANT_RESPONSE:
+            handle_voice_assistant_response(rx_buf, payload_len);
+            break;
         case ESPB_MSG_LIST_ENTITIES_REQUEST:
             // No native entities yet (MQTT still owns restart/LED/volume) --
             // an immediately-empty entity list is a normal, valid response.
@@ -209,6 +288,11 @@ static void handle_connection(int connfd)
             LOGI(TAG, "client requested disconnect");
             s_va_subscribed = false;
             s_va_flags = 0;
+            s_active_connfd = -1;
+            if (s_va_response_pending) {
+                s_va_response_pending = false;
+                aos_sem_signal(&s_va_response_sem);
+            }
             lwip_close(connfd);
             return;
         default:
@@ -219,9 +303,15 @@ static void handle_connection(int connfd)
 
     // Also reached on an abrupt close (rc == -1/-2 above) -- a client that
     // drops the TCP connection without a DisconnectRequest must not leave a
-    // stale subscription behind for the next connection to inherit.
+    // stale subscription (or a sender blocked on a response that will never
+    // arrive) behind for/after the next connection.
     s_va_subscribed = false;
     s_va_flags = 0;
+    s_active_connfd = -1;
+    if (s_va_response_pending) {
+        s_va_response_pending = false;
+        aos_sem_signal(&s_va_response_sem);
+    }
     lwip_close(connfd);
 }
 

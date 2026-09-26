@@ -38,4 +38,13 @@ void esphome_api_start(void);
 bool esphome_api_voice_assistant_subscribed(void);
 uint32_t esphome_api_voice_assistant_flags(void);
 
+// Sends a VoiceAssistantRequest (start=true) to the currently connected HA
+// client and waits up to timeout_ms for the matching VoiceAssistantResponse.
+// Returns false if there is no active connection, the write failed, or no
+// response arrived within timeout_ms; *out_port/*out_error are only valid
+// when this returns true. Not yet wired to the wake-word path (see
+// TODO.md) -- exposed for a CLI test command first.
+bool esphome_api_send_voice_assistant_start(const char *conversation_id, uint32_t flags,
+                                             uint32_t timeout_ms, uint32_t *out_port, bool *out_error);
+
 #endif // ESPHOME_API_ESPHOME_API_H_

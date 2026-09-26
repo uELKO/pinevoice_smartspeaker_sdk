@@ -206,17 +206,38 @@ Neu zu bauen:
    fehlen) — wir speichern den Wert nur, ohne aktuell darauf zu reagieren,
    also ohne Auswirkung.
 
+   **Update (2026-09-26): VoiceAssistantRequest/Response-Roundtrip gebaut und
+   gegen echtes HA verifiziert** — aber bewusst noch nicht an den echten
+   Wake-Word-Callback angeschlossen, sondern nur über einen neuen CLI-
+   Testbefehl `esphome_va_test` (`app/src/wyoming/wyoming.c`,
+   `esphome_api_send_voice_assistant_start()` in
+   `components/esphome_native_api`) manuell auslösbar — Risiko für die
+   Alltagsnutzung damit praktisch null, da der bestehende Wyoming-Wake-Word-
+   Pfad komplett unangetastet bleibt. Testergebnis: `VoiceAssistantRequest`
+   gesendet → `VoiceAssistantResponse: port=0 error=0` kam nach ~13ms zurück
+   → HA startete sofort einen echten Pipeline-Run und schickte drei
+   `VoiceAssistantEventResponse` (msg 92) hinterher (aktuell nur geloggt,
+   noch nicht geparst). Damit verifiziert: **`port=0` bedeutet tatsächlich
+   "Audio über die API-Verbindung, kein separates UDP"** (vorher nur
+   Vermutung). Alle Feldnummern für VoiceAssistantRequest/Response/
+   EventResponse/Audio wurden zusätzlich direkt gegen das echte `api.proto`
+   von `esphome/aioesphomeapi` (main-Branch) gegengeprüft und stimmten exakt
+   — keine Korrekturen nötig (im Gegensatz zu den zwei Lücken weiter oben,
+   die dabei gefunden wurden: `ConnectRequest`/-`Response` heißen inzwischen
+   `AuthenticationRequest`/-`Response`, gleiche IDs 3/4, als deprecated
+   markiert aber weiterhin vom echten Client gesendet).
+
    Noch zu tun, in dieser Reihenfolge:
-   - Eigenes `VoiceAssistantRequest` beim Wake-Word senden (ersetzt
-     `wsat_wake_detection()` in `app/src/wyoming/wyoming.c:39` — **noch nicht
-     angefasst**, das ist der Punkt, an dem der ESPHome-Pfad erstmals aktiv
-     in den bestehenden Mic-/Wake-Word-Callback eingreift statt nur passiv
-     mitzulaufen)
-   - `VoiceAssistantResponse` empfangen (Port-Feld; 0 bedeutet vermutlich
-     "Audio über die API-Verbindung, kein separates UDP" — noch nicht anhand
-     von echtem HA-Verhalten verifiziert)
+   - Eigenes `VoiceAssistantRequest` tatsächlich beim Wake-Word senden statt
+     nur per CLI-Testbefehl (ersetzt `wsat_wake_detection()` in
+     `app/src/wyoming/wyoming.c:41` — **noch nicht angefasst**, das ist der
+     Punkt, an dem der ESPHome-Pfad erstmals aktiv in den bestehenden Mic-/
+     Wake-Word-Callback eingreift statt nur passiv mitzulaufen bzw. manuell
+     testbar zu sein)
    - Mic-Audio als `VoiceAssistantAudio` streamen (ersetzt
-     `wsat_mic_write_data()` in `mic_streamer_fn`)
+     `wsat_mic_write_data()` in `mic_streamer_fn`) — ohne das bricht jeder
+     echte Pipeline-Run an der STT-Stufe ab, da nie Audio ankommt (wie im
+     obigen Test zu erwarten)
    - `VoiceAssistantEventResponse` für STT/Intent/TTS-Stages auswerten
      (Äquivalent zu `fback_handle_sys_event()`, das aktuell die LED-Show
      anhand von Wyoming-Events steuert)
