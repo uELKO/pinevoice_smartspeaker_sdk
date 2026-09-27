@@ -316,14 +316,23 @@ Neu zu bauen:
    Einzige Auffälligkeit (laut Nutzer bereits vorher bei Wyoming vorhanden,
    also keine Regression): LED wird bei Wake-Word-Erkennung nicht heller.
 
+   **Update (2026-09-27, Fortsetzung): LED-Show jetzt an die echten
+   ESPHome-Events gekoppelt, live bestätigt.** `esphome_run_voice_assistant_
+   session()`/`va_test_event_cb()`/`va_test_player_event()` setzen jetzt
+   `LIGHT_SHOW_LISTENING` (Start des Turns), `LIGHT_SHOW_PROCESSING`
+   (`STT_END`), `LIGHT_SHOW_ANSWER` (`TTS_START`), `LIGHT_SHOW_ERROR` (mit
+   vorherigem Reset auf `READY`, wie bei Wyoming) bei jedem Fehlerpfad, und
+   `LIGHT_SHOW_READY` erst wenn die TTS-Wiedergabe tatsächlich fertig ist
+   (nicht bei `RUN_END`, das kommt schon an, bevor der HTTP-Fetch/die
+   Wiedergabe abgeschlossen ist) — Eins-zu-eins-Analogie zu
+   `fback_handle_sys_event()`s Wyoming-Mapping. Live mit echtem Wake-Word
+   getestet: kompletter LED-Zyklus (zuhören → verarbeiten → antworten →
+   bereit) bestätigt, funktioniert wie bei Wyoming.
+
    Damit ist der ESPHome-Pfad technisch fähig, den kompletten Wake-Word-
-   Ablauf zu übernehmen. Noch offen, bevor das der **dauerhafte** Standard
-   werden sollte (aktuell weiterhin Wyoming per Default, ESPHome nur
-   bewusst per CLI zugeschaltet):
-   - LED-Show-Steuerung an die echten ESPHome-Events koppeln (Äquivalent zu
-     `fback_handle_sys_event()`, das aktuell nur auf Wyoming-Events reagiert
-     — im ESPHome-Pfad gibt es aktuell nur eine Fehler-LED bei
-     Verbindungsproblemen, sonst keine Zustandsanzeige)
+   Ablauf inklusive LED-Feedback zu übernehmen. Noch offen, bevor das der
+   **dauerhafte** Standard werden sollte (aktuell weiterhin Wyoming per
+   Default, ESPHome nur bewusst per CLI zugeschaltet):
    - Mehrfachauslösung/Robustheit bei schnell wiederholtem Wake-Word nicht
      geprüft (Semaphore-Queue verarbeitet sequenziell, aber ungetestet, wie
      sich das UX-mäßig anfühlt)
