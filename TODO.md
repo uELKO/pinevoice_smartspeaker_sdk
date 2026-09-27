@@ -294,19 +294,42 @@ Neu zu bauen:
    von Wyomings `g_player`) bewusst gewählt, um Wyomings bestehende,
    funktionierende Wiedergabe-Pipeline nicht anzufassen.
 
-   Noch zu tun (das Einzige, was jetzt noch fehlt, bevor ESPHome den echten
-   Wake-Word-Pfad übernehmen könnte):
-   - Eigenes `VoiceAssistantRequest` tatsächlich beim Wake-Word senden statt
-     nur per CLI-Testbefehl (ersetzt `wsat_wake_detection()` in
-     `app/src/wyoming/wyoming.c` — **noch nicht angefasst**, das ist der
-     einzige verbleibende Schritt, der den ESPHome-Pfad aktiv in den
-     bestehenden Mic-/Wake-Word-Callback eingreifen lässt statt nur passiv
-     mitzulaufen bzw. manuell testbar zu sein. Klar größeres Risiko als alle
-     bisherigen Schritte, da es die Alltagsnutzung direkt betrifft — sollte
-     als eigener, bewusst angekündigter Schritt gemacht werden, nicht
-     nebenbei)
-   - LED-Show-Steuerung an die echten Events koppeln (Äquivalent zu
-     `fback_handle_sys_event()`, das aktuell nur auf Wyoming-Events reagiert)
+   **Update (2026-09-27): echtes Wake-Word löst jetzt den ESPHome-Pfad aus —
+   live getestet, funktioniert.** `mic_evt_cb`s `MIC_EVENT_SESSION_START`
+   verzweigt jetzt auf `s_esphome_wake_enabled` (Default `false`): entweder
+   der unveränderte `wsat_wake_detection()`-Pfad, oder `esphome_wake_trigger()`
+   — signalisiert nur einen Semaphore an einen eigenen, dauerhaft laufenden
+   `esphome_wake`-Task (`esphome_wake_worker_fn`), damit der Mic-Callback nie
+   auf Netzwerk-I/O wartet. Beide Pfade rufen dieselbe, aus dem CLI-Testbefehl
+   extrahierte `esphome_run_voice_assistant_session()` — exakt das gegen HA
+   verifizierte Verhalten von oben, jetzt über zwei Trigger erreichbar.
+   `s_esphome_wake_enabled` wird **bewusst nicht in KV persistiert** — jeder
+   Reboot setzt zurück auf Wyoming, damit ein missglückter Live-Test die
+   Alltagsnutzung nie dauerhaft strandet (Power-Cycle statt Reflash genügt).
+   Umschaltbar per neuem CLI-Befehl `esphome_wake_enable 0|1`.
+
+   Getestet: mit Schalter aus (Default) keinerlei Verhaltensänderung
+   bestätigt (LED/Wake-Word/Tasten normal) — dieser Stand zuerst committet.
+   Danach live mit Schalter an und echtem gesprochenem "Alexa" getestet:
+   STT transkribierte "Wie spät ist es?" korrekt, HA antwortete "Es ist
+   11:04", TTS wurde hörbar abgespielt — Stimme und Reaktionszeit normal.
+   Einzige Auffälligkeit (laut Nutzer bereits vorher bei Wyoming vorhanden,
+   also keine Regression): LED wird bei Wake-Word-Erkennung nicht heller.
+
+   Damit ist der ESPHome-Pfad technisch fähig, den kompletten Wake-Word-
+   Ablauf zu übernehmen. Noch offen, bevor das der **dauerhafte** Standard
+   werden sollte (aktuell weiterhin Wyoming per Default, ESPHome nur
+   bewusst per CLI zugeschaltet):
+   - LED-Show-Steuerung an die echten ESPHome-Events koppeln (Äquivalent zu
+     `fback_handle_sys_event()`, das aktuell nur auf Wyoming-Events reagiert
+     — im ESPHome-Pfad gibt es aktuell nur eine Fehler-LED bei
+     Verbindungsproblemen, sonst keine Zustandsanzeige)
+   - Mehrfachauslösung/Robustheit bei schnell wiederholtem Wake-Word nicht
+     geprüft (Semaphore-Queue verarbeitet sequenziell, aber ungetestet, wie
+     sich das UX-mäßig anfühlt)
+   - Persistenz-Entscheidung: aktuell bewusst flüchtig (siehe oben) — bevor
+     ESPHome dauerhaft Standard wird, müsste diese Entscheidung nochmal
+     bewusst getroffen werden (z. B. per KV, sobald genug Vertrauen besteht)
 6. **Follow-up-Logik**: bei `INTENT_END` mit `continue_conversation=1` die
    `conversation_id` merken, nach Ende der Wiedergabe automatisch neues
    `VoiceAssistantRequest` mit `USE_VAD` (ohne Wake-Word) + derselben
